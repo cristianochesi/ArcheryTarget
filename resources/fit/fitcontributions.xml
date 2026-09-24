@@ -1,0 +1,37 @@
+<fitContributions>
+    <!-- Record (1 Hz) - charts: signed aim offset, X + = left, Y + = up, 0 while the arm is down. Ids match ArcheryModel.mc -->
+    <fitField id="1" displayInChart="true" sortOrder="1" precision="1" chartTitle="@Strings.LblWobX"
+              dataLabel="@Strings.LblWobX" unitLabel="@Strings.UnitCm" fillColor="#0055FF"/>
+    <fitField id="2" displayInChart="true" sortOrder="2" precision="1" chartTitle="@Strings.LblWobY"
+              dataLabel="@Strings.LblWobY" unitLabel="@Strings.UnitCm" fillColor="#FFAA00"/>
+
+    <!-- Lap: one lap = one arrow -->
+    <fitField id="3" displayInActivityLaps="true" sortOrder="3" precision="1"
+              dataLabel="@Strings.LblShotX" unitLabel="@Strings.UnitCm"/>
+    <fitField id="4" displayInActivityLaps="true" sortOrder="4" precision="1"
+              dataLabel="@Strings.LblShotY" unitLabel="@Strings.UnitCm"/>
+    <fitField id="5" displayInActivityLaps="true" sortOrder="5" precision="0"
+              dataLabel="@Strings.LblShotScore" unitLabel="@Strings.UnitPts"/>
+    <fitField id="6" displayInActivityLaps="true" sortOrder="6" precision="1"
+              dataLabel="@Strings.LblHold" unitLabel="@Strings.UnitS"/>
+    <fitField id="7" displayInActivityLaps="true" sortOrder="7" precision="1"
+              dataLabel="@Strings.LblRmsX" unitLabel="@Strings.UnitCm"/>
+    <fitField id="8" displayInActivityLaps="true" sortOrder="8" precision="1"
+              dataLabel="@Strings.LblRmsY" unitLabel="@Strings.UnitCm"/>
+
+    <!-- Session: final report summary -->
+    <fitField id="9" displayInActivitySummary="true" sortOrder="9" precision="0"
+              dataLabel="@Strings.LblArrows" unitLabel="@Strings.UnitArrows"/>
+    <fitField id="10" displayInActivitySummary="true" sortOrder="10" precision="0"
+              dataLabel="@Strings.LblTotal" unitLabel="@Strings.UnitPts"/>
+    <fitField id="11" displayInActivitySummary="true" sortOrder="11" precision="1"
+              dataLabel="@Strings.LblMeanX" unitLabel="@Strings.UnitCm"/>
+    <fitField id="12" displayInActivitySummary="true" sortOrder="12" precision="1"
+              dataLabel="@Strings.LblMeanY" unitLabel="@Strings.UnitCm"/>
+    <fitField id="13" displayInActivitySummary="true" sortOrder="13" precision="1"
+              dataLabel="@Strings.LblAvgHold" unitLabel="@Strings.UnitS"/>
+    <fitField id="14" displayInActivitySummary="true" sortOrder="14" precision="1"
+              dataLabel="@Strings.LblAvgRmsX" unitLabel="@Strings.UnitCm"/>
+    <fitField id="15" displayInActivitySummary="true" sortOrder="15" precision="1"
+              dataLabel="@Strings.LblAvgRmsY" unitLabel="@Strings.UnitCm"/>
+</fitContributions>

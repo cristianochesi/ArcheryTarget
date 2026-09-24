@@ -1,0 +1,38 @@
+<settings>
+    <setting propertyKey="@Properties.targetFace" title="@Strings.SetFace">
+        <settingConfig type="list">
+            <listEntry value="122">@Strings.Face122</listEntry>
+            <listEntry value="80">@Strings.Face80</listEntry>
+            <listEntry value="60">@Strings.Face60</listEntry>
+            <listEntry value="40">@Strings.Face40</listEntry>
+        </settingConfig>
+    </setting>
+    <setting propertyKey="@Properties.distanceM" title="@Strings.SetDist">
+        <settingConfig type="list">
+            <listEntry value="18">@Strings.D18</listEntry>
+            <listEntry value="30">@Strings.D30</listEntry>
+            <listEntry value="50">@Strings.D50</listEntry>
+            <listEntry value="70">@Strings.D70</listEntry>
+            <listEntry value="90">@Strings.D90</listEntry>
+        </settingConfig>
+    </setting>
+    <setting propertyKey="@Properties.watchWrist" title="@Strings.SetWrist">
+        <settingConfig type="list">
+            <listEntry value="0">@Strings.WristL</listEntry>
+            <listEntry value="1">@Strings.WristR</listEntry>
+        </settingConfig>
+    </setting>
+    <setting propertyKey="@Properties.dragPrecision" title="@Strings.SetGain">
+        <settingConfig type="list">
+            <listEntry value="100">@Strings.Gain100</listEntry>
+            <listEntry value="50">@Strings.Gain50</listEntry>
+            <listEntry value="30">@Strings.Gain30</listEntry>
+        </settingConfig>
+    </setting>
+    <setting propertyKey="@Properties.invertX" title="@Strings.SetInvX">
+        <settingConfig type="boolean"/>
+    </setting>
+    <setting propertyKey="@Properties.invertY" title="@Strings.SetInvY">
+        <settingConfig type="boolean"/>
+    </setting>
+</settings>

@@ -1,0 +1,8 @@
+<properties>
+    <property id="targetFace" type="number">122</property>
+    <property id="dragPrecision" type="number">100</property>
+    <property id="distanceM" type="number">70</property>
+    <property id="watchWrist" type="number">0</property>
+    <property id="invertX" type="boolean">false</property>
+    <property id="invertY" type="boolean">false</property>
+</properties>

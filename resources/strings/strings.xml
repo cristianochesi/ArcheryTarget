@@ -1,0 +1,51 @@
+<strings>
+    <string id="AppName">Archery Target</string>
+
+    <!-- per-second (charts) -->
+    <string id="LblWobX">Aim X (+ left / - right)</string>
+    <string id="LblWobY">Aim Y (+ up / - down)</string>
+
+    <!-- per-arrow (lap) fields -->
+    <string id="LblShotX">Arrow X</string>
+    <string id="LblShotY">Arrow Y</string>
+    <string id="LblShotScore">Arrow score</string>
+    <string id="LblHold">Hold time (arm up to release)</string>
+    <string id="LblRmsX">Aim steadiness X (last 2 s)</string>
+    <string id="LblRmsY">Aim steadiness Y (last 2 s)</string>
+
+    <!-- session summary fields -->
+    <string id="LblArrows">Arrows</string>
+    <string id="LblTotal">Total score</string>
+    <string id="LblMeanX">Group centre X</string>
+    <string id="LblMeanY">Group centre Y</string>
+    <string id="LblAvgHold">Average hold time</string>
+    <string id="LblAvgRmsX">Average aim steadiness X</string>
+    <string id="LblAvgRmsY">Average aim steadiness Y</string>
+
+    <string id="UnitCm">cm</string>
+    <string id="UnitPts">pts</string>
+    <string id="UnitArrows">arrows</string>
+    <string id="UnitS">s</string>
+
+    <!-- settings -->
+    <string id="SetFace">Target face diameter</string>
+    <string id="Face122">122 cm (outdoor)</string>
+    <string id="Face80">80 cm</string>
+    <string id="Face60">60 cm</string>
+    <string id="Face40">40 cm (indoor)</string>
+    <string id="SetGain">Drag precision</string>
+    <string id="Gain100">Marker under finger</string>
+    <string id="Gain50">Fine (half speed)</string>
+    <string id="Gain30">Extra fine (30 %)</string>
+    <string id="SetDist">Shooting distance</string>
+    <string id="D18">18 m</string>
+    <string id="D30">30 m</string>
+    <string id="D50">50 m</string>
+    <string id="D70">70 m</string>
+    <string id="D90">90 m</string>
+    <string id="SetWrist">Watch worn on (bow arm)</string>
+    <string id="WristL">Left wrist</string>
+    <string id="WristR">Right wrist</string>
+    <string id="SetInvX">Invert aim X</string>
+    <string id="SetInvY">Invert aim Y</string>
+</strings>
