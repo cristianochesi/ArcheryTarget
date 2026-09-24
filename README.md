@@ -37,3 +37,6 @@ phone app is needed to read `text` aloud (not included yet). Without it the mess
 
 ## Settings (Connect IQ app on the phone, store/beta install only)
 Face diameter, shooting distance, wrist, drag precision, invert X / Y.
+
+## AI Usage declaration
+This code has been generated, debugged and optimized with the help of Claude Opus 5.5 model
