@@ -1,6 +1,6 @@
-# Archery Target — Connect IQ app for Forerunner 955
+# Archery Target — Connect IQ app for Garmin smartwatches with gyroscope and touchscreen
 
-A Connect IQ device app that records its own "Archery" activity: arrow positions on a
+A Connect IQ device app that records your archery activity: arrow positions on a
 touch target, heart rate, respiration rate and bow-arm aim movement (X/Y) during each hold.
 
 ## Controls
