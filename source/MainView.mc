@@ -18,6 +18,14 @@ class MainView extends WatchUi.View {
         _m = model;
     }
 
+    function onShow() as Void {
+        _m.mainVisible = true;
+    }
+
+    function onHide() as Void {
+        _m.mainVisible = false;
+    }
+
     function nextPage() as Void {
         page = (page + 1) % 2;
         WatchUi.requestUpdate();
@@ -41,14 +49,14 @@ class MainView extends WatchUi.View {
         var cx = w / 2;
         var C = ArcheryUi.CENTER;
 
-        var status = "PRESS START";
+        var status = "START  |  UP = SETUP";
         var sc = Graphics.COLOR_LT_GRAY;
         if (_m.isRecording()) {
             if (_m.tracker.isUp) {
                 status = "AIMING";
                 sc = Graphics.COLOR_BLUE;
             } else {
-                status = "LAP = MARK ARROW";
+                status = "READY  |  LAP = MARK";
                 sc = Graphics.COLOR_GREEN;
             }
         } else if (_m.hasSession()) {
@@ -69,9 +77,14 @@ class MainView extends WatchUi.View {
         var n = _m.count();
         var avg = (n > 0) ? _m.avgScore().format("%.1f") : "--";
         var last = (_m.lastScore == null) ? "--" : ArcheryUi.scoreLabel(_m.lastScore);
-        drawStat(dc, w * 0.25, h * 0.47, n.toString(), "ARROWS");
-        drawStat(dc, cx,       h * 0.47, avg,          "AVG");
-        drawStat(dc, w * 0.75, h * 0.47, last,         "LAST");
+        if (_m.hasSession()) {
+            drawStat(dc, w * 0.25, h * 0.47, n.toString(), "ARROWS");
+            drawStat(dc, cx,       h * 0.47, avg,          "AVG");
+            drawStat(dc, w * 0.75, h * 0.47, last,         "LAST");
+        } else {
+            drawStat(dc, w * 0.30, h * 0.47, _m.distM.toNumber().toString() + " m", "DISTANCE");
+            drawStat(dc, w * 0.70, h * 0.47, _m.faceCm.toNumber().toString() + " cm", "FACE");
+        }
 
         // HR + respiration line
         var hr = _m.hr;
@@ -96,8 +109,10 @@ class MainView extends WatchUi.View {
 
     // Bars of the last 4 minutes of HR, coloured by zone (like the native HR graph).
     private function drawHrGraph(dc, cx, top, bottom) as Void {
-        var gw = ArcheryUi.HR_HISTORY;
-        var x0 = (cx - gw / 2).toNumber();
+        var bars = ArcheryUi.HR_HISTORY;
+        var bw = ArcheryUi.scale(dc);             // bar width: 1 px on the FR955
+        var gw = bars * bw;
+        var x0 = cx - gw / 2;
         var gh = bottom - top;
         var lo = 60.0;
         var hi = 190.0;
@@ -112,7 +127,7 @@ class MainView extends WatchUi.View {
         if (zones != null) {                       // zone boundaries
             for (var i = 1; i <= 4; i += 1) {
                 var zy = bottom - gh * (zones[i] - lo) / (hi - lo);
-                for (var x = x0; x < x0 + gw; x += 4) {
+                for (var x = x0; x < x0 + gw; x += 4 * bw) {
                     dc.drawPoint(x, zy);
                 }
             }
@@ -120,7 +135,7 @@ class MainView extends WatchUi.View {
 
         var hist = _m.hrHist;
         var n = hist.size();
-        var start = x0 + gw - n;
+        var start = x0 + (bars - n) * bw;
         for (var i = 0; i < n; i += 1) {
             var v = hist[i];
             if (v <= 0) { continue; }
@@ -129,7 +144,7 @@ class MainView extends WatchUi.View {
             if (frac > 1.0) { frac = 1.0; }
             var bh = gh * frac;
             dc.setColor(zoneColor(_m.hrZone(v)), Graphics.COLOR_TRANSPARENT);
-            dc.fillRectangle(start + i, bottom - bh, 1, bh);
+            dc.fillRectangle(start + i * bw, bottom - bh, (bw < 1) ? 1 : bw + 0.5, bh);
         }
     }
 
@@ -206,7 +221,7 @@ class MainView extends WatchUi.View {
         }
 
         dc.setColor(color, Graphics.COLOR_TRANSPARENT);
-        dc.setPenWidth(2);
+        dc.setPenWidth((2 * ArcheryUi.scale(dc) + 0.5).toNumber());
         var px = x0;
         var py = mid;
         for (var i = from; i < n; i += 1) {

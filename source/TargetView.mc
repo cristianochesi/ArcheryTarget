@@ -34,6 +34,7 @@ class TargetView extends WatchUi.View {
         _m = model;
         _timer = new Timer.Timer();
         _hold = model.pendingHold();
+        model.targetOpen = true;
     }
 
     function onLayout(dc as Graphics.Dc) as Void {
@@ -60,6 +61,9 @@ class TargetView extends WatchUi.View {
             "ARROW " + (_m.count() + 1).toString(), ArcheryUi.CENTER);
 
         if (_px != null) {
+            if (_released) {
+                drawAimPath(dc);
+            }
             drawMarker(dc);
             if (_released) {
                 drawBadge(dc);
@@ -73,28 +77,54 @@ class TargetView extends WatchUi.View {
         dc.setColor(Graphics.COLOR_PINK, Graphics.COLOR_TRANSPARENT);
         dc.drawLine(0, _py, _w, _py);
         dc.drawLine(_px, 0, _px, _h);
+        var k = ArcheryUi.scale(dc);
         dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
-        dc.fillCircle(_px, _py, 6);
+        dc.fillCircle(_px, _py, 6 * k);
         dc.setColor(Graphics.COLOR_PINK, Graphics.COLOR_TRANSPARENT);
-        dc.fillCircle(_px, _py, 4);
+        dc.fillCircle(_px, _py, 4 * k);
+    }
+
+    // Aim path of this arrow, ending (the break) on the marked hit point.
+    private function drawAimPath(dc) as Void {
+        if (_hold == null || _hold[:px] == null) { return; }
+        var px = _hold[:px] as Array<Float>;
+        var py = _hold[:py] as Array<Float>;
+        var n = px.size();
+        var k = _r / (_m.faceCm / 2.0);
+        var a = ArcheryUi.aimStart(px, py, _m.faceCm * 0.15);
+        var pen = (2 * ArcheryUi.scale(dc) + 0.5).toNumber();
+        ArcheryUi.drawPath(dc, px, py, 0, a + 1, _px, _py, k, Graphics.COLOR_PURPLE, pen);
+        ArcheryUi.drawPath(dc, px, py, a, n, _px, _py, k, Graphics.COLOR_DK_BLUE, pen);
     }
 
     // Score, hold time and x/y, drawn on the half of the target opposite to the marker.
     private function drawBadge(dc) as Void {
-        var by = (_py > _cy) ? _cy - _r * 0.5 : _cy + _r * 0.5;
-        var bw = 150;
-        var bh = 84;
-        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
-        dc.fillRoundedRectangle(_cx - bw / 2, by - bh / 2, bw, bh, 10);
-        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(_cx, by - 20, Graphics.FONT_MEDIUM,
-            ArcheryUi.scoreLabel(currentScore()), ArcheryUi.CENTER);
-        dc.setColor(Graphics.COLOR_BLUE, Graphics.COLOR_TRANSPARENT);
+        var scoreTxt = ArcheryUi.scoreLabel(currentScore());
         var holdTxt = (_hold == null) ? "hold --" : "hold " + _hold[:hold].format("%.1f") + " s";
-        dc.drawText(_cx, by + 8, Graphics.FONT_XTINY, holdTxt, ArcheryUi.CENTER);
+        var xyTxt = "x" + ArcheryUi.signed(xCm()) + " y" + ArcheryUi.signed(yCm());
+
+        // size the box from the device fonts so it fits on every screen
+        var fBig = Graphics.FONT_MEDIUM;
+        var fSmall = Graphics.FONT_XTINY;
+        var hBig = dc.getFontHeight(fBig);
+        var hSmall = dc.getFontHeight(fSmall);
+        var pad = (6 * ArcheryUi.scale(dc)).toNumber();
+        var tw = dc.getTextWidthInPixels(xyTxt, fSmall);
+        var t2 = dc.getTextWidthInPixels(holdTxt, fSmall);
+        if (t2 > tw) { tw = t2; }
+        var bw = tw + 4 * pad;
+        var bh = hBig + 2 * hSmall + 2 * pad;
+        var by = (_py > _cy) ? _cy - _r * 0.5 : _cy + _r * 0.5;
+        var top = by - bh / 2;
+
+        dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
+        dc.fillRoundedRectangle(_cx - bw / 2, top, bw, bh, 2 * pad);
+        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(_cx, top + pad + hBig / 2, fBig, scoreTxt, ArcheryUi.CENTER);
+        dc.setColor(Graphics.COLOR_BLUE, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(_cx, top + pad + hBig + hSmall / 2, fSmall, holdTxt, ArcheryUi.CENTER);
         dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(_cx, by + 28, Graphics.FONT_XTINY,
-            "x" + ArcheryUi.signed(xCm()) + " y" + ArcheryUi.signed(yCm()), ArcheryUi.CENTER);
+        dc.drawText(_cx, top + pad + hBig + hSmall * 3 / 2, fSmall, xyTxt, ArcheryUi.CENTER);
     }
 
     // ------------------------------------------------------------ touch input
@@ -138,6 +168,7 @@ class TargetView extends WatchUi.View {
     function lapPressed() as Void {
         if (_px == null) {
             _done = true;
+            _m.targetOpen = false;
             WatchUi.popView(WatchUi.SLIDE_DOWN);   // cancel
         } else {
             confirm();
@@ -148,7 +179,8 @@ class TargetView extends WatchUi.View {
         if (_done || _px == null) { return; }
         _done = true;
         _timer.stop();
-        _m.recordShot(xCm(), yCm(), currentScore());
+        _m.recordShot(xCm(), yCm(), currentScore(), _hold);
+        _m.targetOpen = false;
         WatchUi.popView(WatchUi.SLIDE_DOWN);
     }
 

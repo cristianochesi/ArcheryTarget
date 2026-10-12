@@ -2,6 +2,7 @@ import Toybox.Lang;
 import Toybox.Math;
 import Toybox.Sensor;
 import Toybox.System;
+import Toybox.Timer;
 
 // Watches the bow arm with the accelerometer + gyroscope.
 //  - Arm UP   : forearm (watch X axis) close to horizontal for UP_DEBOUNCE_S
@@ -20,11 +21,13 @@ class AimTracker {
     const MAX_TRACE_S     = 20;
     const STEADY_WINDOW_S = 2.0;    // aim RMS over the last 2 s before the release
     const SETTLE_S        = 1.0;    // skip the first second after the arm comes up (the raise itself)
-    const CENTRE_TAU_S    = 1.5;    // the "centre" of the aim is its average over the last ~1.5 s
+    const CENTRE_TAU_S    = 1.5;
+    const PATH_MAX_S      = 8;      // aim path kept for the report (last 8 s before the release)    // the "centre" of the aim is its average over the last ~1.5 s
 
     var isUp = false;
     var hasGyro = false;
-    var lastHold = null;   // Dictionary: :id :hold :released :rmsX :rmsY :xs :ys :rate
+    var lastHold = null;   // Dictionary: :id :hold :released :rmsX :rmsY :xs :ys :rate :px :py :pdt
+    var onRelease = null;  // Method called (once per batch) right after a release is detected
     // Signed aim offset during the last second, relative to the recent aim centre (cm at target).
     // aimX > 0 = LEFT, < 0 = right; aimY > 0 = up, < 0 = down. 0 while the arm is down.
     var aimX = 0.0;
@@ -62,12 +65,24 @@ class AimTracker {
     private var _centreInit = false;
     private var _centreK = 0.03;
 
+    private var _releasedNow = false;
+    private var _stopped = false;
+    private var _gotReal = false;   // real sensor data has arrived
+    private var _simTimer;
+    private var _simWait = 0;
+    private var _simT = 0.0;
+
     function initialize(distM, leftWrist, invertX, invertY, callback) {
+        configure(distM, leftWrist, invertX, invertY);
+        _cb = callback;
+    }
+
+    // Settings can change from the on-watch menu before the activity starts.
+    function configure(distM, leftWrist, invertX, invertY) as Void {
         _distM = distM.toFloat();
         _wrist = leftWrist ? 1.0 : -1.0;
         _sx = invertX ? -1.0 : 1.0;
         _sy = invertY ? -1.0 : 1.0;
-        _cb = callback;
     }
 
     function start() as Void {
@@ -81,6 +96,8 @@ class AimTracker {
         _dt = 1.0 / _rate;
         _alpha = _dt / (0.15 + _dt);
         _centreK = _dt / (CENTRE_TAU_S + _dt);
+        _stopped = false;
+        startSimulationFallback();
         try {
             Sensor.registerSensorDataListener(method(:onSensor), {
                 :period => 1,
@@ -101,6 +118,10 @@ class AimTracker {
     }
 
     function stop() as Void {
+        _stopped = true;
+        if (_simTimer != null) {
+            _simTimer.stop();
+        }
         if (_running) {
             Sensor.unregisterSensorDataListener();
             _running = false;
@@ -109,12 +130,21 @@ class AimTracker {
 
     // Called by the system once per second with a batch of samples.
     function onSensor(data as Sensor.SensorData) as Void {
+        _gotReal = true;
         var acc = data.accelerometerData;
         if (acc == null) { return; }
         var gyr = data.gyroscopeData;
-        hasGyro = (gyr != null);
+        if (gyr == null) {
+            processBatch(acc.x, acc.y, acc.z, null, null, null);
+        } else {
+            processBatch(acc.x, acc.y, acc.z, gyr.x, gyr.y, gyr.z);
+        }
+    }
 
-        var n = acc.x.size();
+    // One second of samples: accelerometer in mg, gyroscope in deg/s (null = no gyroscope).
+    private function processBatch(ax, ay, az, gx, gy, gz) as Void {
+        hasGyro = (gx != null);
+        var n = ax.size();
         var now = System.getTimer();
         var sx = 0.0;
         var sy = 0.0;
@@ -125,12 +155,12 @@ class AimTracker {
             var wx = 0.0;
             var wy = 0.0;
             var wz = 0.0;
-            if (gyr != null && i < gyr.x.size()) {
-                wx = gyr.x[i].toFloat();
-                wy = gyr.y[i].toFloat();
-                wz = gyr.z[i].toFloat();
+            if (gx != null && i < gx.size()) {
+                wx = gx[i].toFloat();
+                wy = gy[i].toFloat();
+                wz = gz[i].toFloat();
             }
-            step(t, acc.x[i].toFloat(), acc.y[i].toFloat(), acc.z[i].toFloat(), wx, wy, wz);
+            step(t, ax[i].toFloat(), ay[i].toFloat(), az[i].toFloat(), wx, wy, wz);
 
             if (isUp && !_released && hasGyro) {
                 var px = xCm();
@@ -156,6 +186,12 @@ class AimTracker {
         } else {
             aimX = 0.0;
             aimY = 0.0;
+        }
+        if (_releasedNow) {
+            _releasedNow = false;
+            if (onRelease != null) {
+                onRelease.invoke();
+            }
         }
         if (_cb != null) {
             _cb.invoke();
@@ -251,6 +287,9 @@ class AimTracker {
     private function finishHold(endMs, released) as Void {
         _done = true;
         _holdId += 1;
+        if (released) {
+            _releasedNow = true;
+        }
         var n = _xs.size();
         var w = (STEADY_WINDOW_S * _rate).toNumber();
         if (w > n) { w = n; }
@@ -264,6 +303,32 @@ class AimTracker {
             :ys => _ys,
             :rate => _rate
         };
+        buildPath();
+    }
+
+    // Aim path for the report: the last PATH_MAX_S seconds at ~10 Hz, relative to the
+    // aim at the moment of release (the "break"), in cm at the target. x > 0 = right, y > 0 = up.
+    private function buildPath() as Void {
+        var n = _xs.size();
+        var step = (_rate / 10.0 + 0.5).toNumber();
+        if (step < 1) { step = 1; }
+        var maxPts = (PATH_MAX_S * _rate / step).toNumber();
+        var cnt = (n + step - 1) / step;
+        if (cnt > maxPts) { cnt = maxPts; }
+        var px = new [cnt];
+        var py = new [cnt];
+        if (n > 0) {
+            var ex = _xs[n - 1];
+            var ey = _ys[n - 1];
+            for (var k = 0; k < cnt; k += 1) {
+                var i = n - 1 - (cnt - 1 - k) * step;
+                px[k] = _xs[i] - ex;
+                py[k] = _ys[i] - ey;
+            }
+        }
+        lastHold[:px] = px;
+        lastHold[:py] = py;
+        lastHold[:pdt] = step.toFloat() / _rate;
     }
 
     private function xCm() {
@@ -280,15 +345,88 @@ class AimTracker {
         return (v > 0) ? Math.sqrt(v).toFloat() : 0.0;
     }
 
-    private function rmsRange(a, from, to) {
+    private function rmsRange(a as Array<Float>, from as Number, to as Number) {
         var n = to - from;
         if (n < 2) { return 0.0; }
         var s = 0.0;
         var ss = 0.0;
         for (var i = from; i < to; i += 1) {
-            s += a[i];
-            ss += a[i] * a[i];
+            var v = a[i];
+            s += v;
+            ss += v * v;
         }
         return rms(s, ss, n);
+    }
+
+    // ---------------------------------------------------------------- simulator only
+    // The simulator does not feed accelerometer/gyroscope data to apps. In debug builds
+    // (Ctrl+F5), if no real sensor data has arrived after 3 s, synthetic shots are generated
+    // in a 12 s cycle: 3 s arm down, raise, ~5.5 s aiming with tremor, release shock, lower.
+    // Release builds (Build for Device, Export Project use -r) do not contain this code.
+    (:debug)
+    private function startSimulationFallback() as Void {
+        _simWait = 0;
+        _simT = 0.0;
+        _simTimer = new Timer.Timer();
+        _simTimer.start(method(:simTick), 1000, true);
+    }
+
+    (:release)
+    private function startSimulationFallback() as Void {
+    }
+
+    (:debug)
+    function simTick() as Void {
+        if (_gotReal || _stopped) {
+            _simTimer.stop();
+            return;
+        }
+        _simWait += 1;
+        if (_simWait <= 3) { return; }
+
+        var n = _rate;
+        var ax = new [n];
+        var ay = new [n];
+        var az = new [n];
+        var gx = new [n];
+        var gy = new [n];
+        var gz = new [n];
+        var w = 2.0 * Math.PI;
+        for (var i = 0; i < n; i += 1) {
+            var t = _simT + i * _dt;
+            var cyc = t - 12.0 * (t / 12.0).toNumber();
+
+            // 0 = arm hanging down, 1 = forearm horizontal
+            var lift = 0.0;
+            if (cyc >= 3.0 && cyc < 3.5) {
+                lift = (cyc - 3.0) / 0.5;
+            } else if (cyc >= 3.5 && cyc < 9.5) {
+                lift = 1.0;
+            } else if (cyc >= 9.5 && cyc < 10.0) {
+                lift = 1.0 - (cyc - 9.5) / 0.5;
+            }
+            var a = lift * Math.PI / 2.0;
+            // "up" along -X (towards the elbow) with the arm down, along +Z with the arm horizontal
+            ax[i] = -1000.0 * Math.cos(a);
+            ay[i] = 0.0;
+            az[i] = 1000.0 * Math.sin(a);
+            gx[i] = 0.0;
+            gy[i] = 0.0;
+            gz[i] = 0.0;
+
+            if (cyc >= 3.5 && cyc < 9.0) {
+                // aim X(t), Y(t) in degrees: 7 Hz / 6 Hz tremor plus a slow sway;
+                // the gyroscope sees their derivatives (up = +Z, right = -Y)
+                var dX = 0.05 * w * 7.0 * Math.cos(w * 7.0 * t) + 0.12 * w * 0.7 * Math.cos(w * 0.7 * t);
+                var dY = 0.04 * w * 6.0 * Math.cos(w * 6.0 * t + 1.0) + 0.15 * w * 0.5 * Math.cos(w * 0.5 * t + 2.0);
+                gz[i] = -dX;
+                gy[i] = -dY;
+            }
+            if (cyc >= 9.0 && cyc < 9.0 + _dt) {
+                ax[i] = ax[i] + 3000.0;   // release shock
+            }
+        }
+        _simT += 1.0;
+        processBatch(ax, ay, az, gx, gy, gz);
     }
 }

@@ -5,7 +5,7 @@ import Toybox.WatchUi;
 function openPauseMenu(model) as Void {
     var menu = new WatchUi.Menu2({ :title => "Paused" });
     menu.addItem(new WatchUi.MenuItem("Resume", null, :resume, null));
-    menu.addItem(new WatchUi.MenuItem("Summary",
+    menu.addItem(new WatchUi.MenuItem("Report",
         model.count().toString() + " arrows, " + model.total.toString() + " pts", :summary, null));
     menu.addItem(new WatchUi.MenuItem("Save", null, :save, null));
     menu.addItem(new WatchUi.MenuItem("Discard", null, :discard, null));
@@ -27,10 +27,12 @@ class PauseMenuDelegate extends WatchUi.Menu2InputDelegate {
             _m.start();
             WatchUi.popView(WatchUi.SLIDE_DOWN);
         } else if (id == :summary) {
-            WatchUi.pushView(new SummaryView(_m), new WatchUi.BehaviorDelegate(), WatchUi.SLIDE_LEFT);
+            var rv = new ReportView(_m);
+            WatchUi.pushView(rv, new ReportDelegate(rv, false), WatchUi.SLIDE_LEFT);
         } else if (id == :save) {
             _m.save();
-            System.exit();
+            var rv = new ReportView(_m);
+            WatchUi.switchToView(rv, new ReportDelegate(rv, true), WatchUi.SLIDE_LEFT);
         } else if (id == :discard) {
             WatchUi.pushView(new WatchUi.Confirmation("Discard session?"),
                 new DiscardDelegate(_m), WatchUi.SLIDE_IMMEDIATE);
