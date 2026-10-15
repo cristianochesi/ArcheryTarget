@@ -6,10 +6,11 @@ import Toybox.WatchUi;
 
 // End-of-session report. UP / DOWN (or swipe) change page:
 //   0  summary numbers
-//   1  heat map of the hits on the target
-//   2  heat map of where the aim floated before each release, relative to the release
+//   1  form by end: accuracy, grouping, stability and form for each end (warm-up / fatigue)
+//   2  heat map of the hits on the target
+//   3  heat map of where the aim floated before each release, relative to the release
 //      point, with the average drift into the release (the "bending" tendency)
-//   3+ one page per arrow: aim path ending on the hit (approach purple, aim blue, break red).
+//   4+ one page per arrow: aim path ending on the hit (approach purple, aim blue, break red).
 //      Tap = zoom x3 around the hit.
 class ReportView extends WatchUi.View {
 
@@ -31,7 +32,7 @@ class ReportView extends WatchUi.View {
     }
 
     function pageCount() {
-        return 3 + _m.count();
+        return 4 + _m.count();
     }
 
     function move(d) as Void {
@@ -47,11 +48,13 @@ class ReportView extends WatchUi.View {
         if (page == 0) {
             drawStats(dc);
         } else if (page == 1) {
-            drawHits(dc);
+            drawEnds(dc);
         } else if (page == 2) {
+            drawHits(dc);
+        } else if (page == 3) {
             drawFloat(dc);
         } else {
-            drawShot(dc, page - 3);
+            drawShot(dc, page - 4);
         }
         // page dots / counter
         dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
@@ -84,6 +87,7 @@ class ReportView extends WatchUi.View {
             "group X " + ArcheryUi.signed(_m.meanX()) + "  Y " + ArcheryUi.signed(_m.meanY()) + " cm",
             "hold " + _m.avgHold().format("%.1f") + " s  aim "
                 + ArcheryUi.moa(_m.avgRmsX(), _m.avgRmsY(), _m.distM).format("%.1f") + " MOA",
+            formLine(),
             "HR avg " + hrTxt(_m.hrAvg) + "  max " + hrTxt(_m.hrMax),
             "resp " + ((_m.respAvg > 0) ? _m.respAvg.format("%.0f") : "--") + " brpm"
         ];
@@ -95,11 +99,92 @@ class ReportView extends WatchUi.View {
         }
     }
 
+    // Whole-session form: A(ccuracy) G(rouping) S(tability) = F(orm)
+    private function formLine() {
+        var n = _m.count();
+        if (n < 3) { return "form --"; }
+        var f = _m.formStats(0, n);
+        return "A " + f[0].format("%.1f") + " G " + f[1].format("%.1f")
+            + " S " + ((f[2] >= 0) ? f[2].format("%.1f") : "--") + " = " + f[3].format("%.1f");
+    }
+
     private function hrTxt(v) {
         return (v > 0) ? v.toString() : "--";
     }
 
     // ------------------------------------------------------------ page 1
+
+    private function drawEnds(dc) as Void {
+        var w = dc.getWidth();
+        var h = dc.getHeight();
+        var sk = ArcheryUi.scale(dc);
+        title(dc, "FORM BY END");
+        var ends = _m.ends as Array<Array<Float>>;
+        var n = ends.size();
+        if (n < 2) {
+            dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
+            dc.drawText(w / 2, h / 2, Graphics.FONT_XTINY,
+                "needs 2 ends (" + (2 * _m.endSize()).toString() + " arrows)", ArcheryUi.CENTER);
+            return;
+        }
+        // plot area: score scale, auto-ranged on the data (at least 3 points tall)
+        var x0 = w * 0.17;
+        var x1 = w * 0.85;
+        var y0 = h * 0.22;
+        var y1 = h * 0.72;
+        var lo = 10.0;
+        var hi = 0.0;
+        for (var i = 0; i < n; i += 1) {
+            for (var k = 0; k < 4; k += 1) {
+                var v = ends[i][k];
+                if (v < 0) { continue; }
+                if (v < lo) { lo = v; }
+                if (v > hi) { hi = v; }
+            }
+        }
+        lo = Math.floor(lo).toFloat();
+        hi = Math.ceil(hi).toFloat();
+        if (hi - lo < 3) { lo = hi - 3; }
+        if (lo < 0) { lo = 0.0; hi = (hi < 3) ? 3.0 : hi; }
+
+        dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
+        dc.drawRectangle(x0, y0, x1 - x0, y1 - y0);
+        dc.drawText(x0 - 3, y0, Graphics.FONT_XTINY, hi.format("%d"), Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
+        dc.drawText(x0 - 3, y1, Graphics.FONT_XTINY, lo.format("%d"), Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
+
+        var cols = [Graphics.COLOR_BLUE, Graphics.COLOR_GREEN, Graphics.COLOR_PURPLE, Graphics.COLOR_WHITE];
+        for (var k = 0; k < 4; k += 1) {
+            dc.setPenWidth((((k == 3) ? 3 : 1) * sk + 0.5).toNumber());
+            dc.setColor(cols[k], Graphics.COLOR_TRANSPARENT);
+            var px = null;
+            var py = null;
+            for (var i = 0; i < n; i += 1) {
+                var v = ends[i][k];
+                if (v < 0) { px = null; continue; }
+                var x = x0 + (x1 - x0) * i / (n - 1.0);
+                var y = y1 - (y1 - y0) * (v - lo) / (hi - lo);
+                if (px != null) { dc.drawLine(px, py, x, y); }
+                px = x;
+                py = y;
+            }
+        }
+        dc.setPenWidth(1);
+
+        // legend + end axis
+        var C = ArcheryUi.CENTER;
+        var lab = ["ACC", "GRP", "STB", "FORM"];
+        for (var k = 0; k < 4; k += 1) {
+            dc.setColor(cols[k], Graphics.COLOR_TRANSPARENT);
+            dc.drawText(w * (0.23 + 0.18 * k), h * 0.80, Graphics.FONT_XTINY, lab[k], C);
+        }
+        dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(w / 2, h * 0.755, Graphics.FONT_XTINY,
+            "end 1 .. " + n.toString() + "  (" + _m.endSize().toString() + " arrows)", C);
+        dc.drawText(w / 2, h * 0.87, Graphics.FONT_XTINY,
+            (_m.phase.length() > 0) ? "now: " + _m.phase : "", C);
+    }
+
+    // ------------------------------------------------------------ page 2
 
     private function drawHits(dc) as Void {
         var h = dc.getHeight();
@@ -143,11 +228,10 @@ class ReportView extends WatchUi.View {
             "+ group X " + ArcheryUi.signed(_m.meanX()) + " Y " + ArcheryUi.signed(_m.meanY()), ArcheryUi.CENTER);
     }
 
-    // ------------------------------------------------------------ page 2
+    // ------------------------------------------------------------ page 3
 
     private function buildFloat() as Void {
         var shots = _m.shots as Array<Array>;
-        var split = _m.faceCm * 0.15;
         // scale: 2.5 x the average radial steadiness, between 3 cm and the face radius
         var rr = 0.0;
         var nr = 0;
@@ -170,7 +254,7 @@ class ReportView extends WatchUi.View {
             if (s[4] == null) { continue; }
             var px = s[4] as Array<Float>;
             var py = s[5] as Array<Float>;
-            var a = ArcheryUi.aimStart(px, py, split);
+            var a = ArcheryUi.aimStart(px.size(), s[6]);
             var n = px.size();
             if (n - a < 2) { continue; }
             var mx = 0.0;
@@ -245,7 +329,7 @@ class ReportView extends WatchUi.View {
         return names[((a + 22.5) / 45.0).toNumber() % 8];
     }
 
-    // ------------------------------------------------------------ pages 3+
+    // ------------------------------------------------------------ pages 4+
 
     private function drawShot(dc, i) as Void {
         var w = dc.getWidth();
@@ -276,7 +360,7 @@ class ReportView extends WatchUi.View {
             var px = s[4] as Array<Float>;
             var py = s[5] as Array<Float>;
             var n = px.size();
-            var a = ArcheryUi.aimStart(px, py, _m.faceCm * 0.15);
+            var a = ArcheryUi.aimStart(n, s[6]);
             var pen = (2 * sk + 0.5).toNumber();
             ArcheryUi.drawPath(dc, px, py, 0, a + 1, hx, hy, k, Graphics.COLOR_PURPLE, pen);
             ArcheryUi.drawPath(dc, px, py, a, n, hx, hy, k, Graphics.COLOR_BLUE, pen);
@@ -348,7 +432,7 @@ class ReportDelegate extends WatchUi.BehaviorDelegate {
     }
 
     function onTap(evt as WatchUi.ClickEvent) as Boolean {
-        if (_v.page >= 3) {
+        if (_v.page >= 4) {
             _v.zoom = !_v.zoom;
             WatchUi.requestUpdate();
         }

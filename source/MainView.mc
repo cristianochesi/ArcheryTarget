@@ -49,14 +49,18 @@ class MainView extends WatchUi.View {
         var cx = w / 2;
         var C = ArcheryUi.CENTER;
 
+        // status: aiming state while the arm is up, otherwise the warm-up / fatigue phase
         var status = "START  |  UP = SETUP";
         var sc = Graphics.COLOR_LT_GRAY;
         if (_m.isRecording()) {
             if (_m.tracker.isUp) {
-                status = "AIMING";
-                sc = Graphics.COLOR_BLUE;
+                status = _m.tracker.steady ? "AIMING" : "RAISED";
+                sc = _m.tracker.steady ? Graphics.COLOR_BLUE : Graphics.COLOR_DK_BLUE;
+            } else if (_m.phase.length() > 0) {
+                status = _m.phase;
+                sc = phaseColor(_m.phase);
             } else {
-                status = "READY  |  LAP = MARK";
+                status = "READY";
                 sc = Graphics.COLOR_GREEN;
             }
         } else if (_m.hasSession()) {
@@ -64,26 +68,28 @@ class MainView extends WatchUi.View {
             sc = Graphics.COLOR_ORANGE;
         }
         dc.setColor(sc, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, h * 0.10, Graphics.FONT_XTINY, status, C);
+        dc.drawText(cx, h * 0.095, Graphics.FONT_XTINY, status, C);
 
         var info = Activity.getActivityInfo();
         var ms = (info != null) ? info.timerTime : null;
         dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, h * 0.20, Graphics.FONT_SMALL, ArcheryUi.formatTime(ms), C);
+        dc.drawText(cx, h * 0.17, Graphics.FONT_SMALL, ArcheryUi.formatTime(ms), C);
 
         dc.setColor(Graphics.COLOR_YELLOW, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx, h * 0.33, Graphics.FONT_NUMBER_MILD, _m.total.toString(), C);
+        dc.drawText(cx, h * 0.28, Graphics.FONT_NUMBER_MILD, _m.total.toString(), C);
 
         var n = _m.count();
         var avg = (n > 0) ? _m.avgScore().format("%.1f") : "--";
         var last = (_m.lastScore == null) ? "--" : ArcheryUi.scoreLabel(_m.lastScore);
+        var y1 = h * 0.405;
         if (_m.hasSession()) {
-            drawStat(dc, w * 0.25, h * 0.47, n.toString(), "ARROWS");
-            drawStat(dc, cx,       h * 0.47, avg,          "AVG");
-            drawStat(dc, w * 0.75, h * 0.47, last,         "LAST");
+            drawStat(dc, w * 0.25, y1, n.toString(), "ARROWS", Graphics.COLOR_WHITE);
+            drawStat(dc, cx,       y1, avg,          "AVG", Graphics.COLOR_WHITE);
+            drawStat(dc, w * 0.75, y1, last,         "LAST", Graphics.COLOR_WHITE);
+            drawForm(dc, h * 0.575);
         } else {
-            drawStat(dc, w * 0.30, h * 0.47, _m.distM.toNumber().toString() + " m", "DISTANCE");
-            drawStat(dc, w * 0.70, h * 0.47, _m.faceCm.toNumber().toString() + " cm", "FACE");
+            drawStat(dc, w * 0.30, y1, _m.distM.toNumber().toString() + " m", "DISTANCE", Graphics.COLOR_WHITE);
+            drawStat(dc, w * 0.70, y1, _m.faceCm.toNumber().toString() + " cm", "FACE", Graphics.COLOR_WHITE);
         }
 
         // HR + respiration line
@@ -93,18 +99,50 @@ class MainView extends WatchUi.View {
         var rr = _m.respRate;
         var rrTxt = (rr == null) ? "RR --" : "RR " + rr.toString();
         dc.setColor(zoneColor(z), Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx - 4, h * 0.645, Graphics.FONT_TINY, hrTxt, Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
+        dc.drawText(cx - 4, h * 0.735, Graphics.FONT_TINY, hrTxt, Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER);
         dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(cx + 10, h * 0.645, Graphics.FONT_TINY, rrTxt, Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
+        dc.drawText(cx + 10, h * 0.735, Graphics.FONT_TINY, rrTxt, Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
 
-        drawHrGraph(dc, cx, h * 0.71, h * 0.90);
+        drawHrGraph(dc, cx, h * 0.795, h * 0.92);
     }
 
-    private function drawStat(dc, x, y, value, label) as Void {
-        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(x, y, Graphics.FONT_SMALL, value, ArcheryUi.CENTER);
+    // ACC / GRP / STB / FORM of the last end, each green or red when better or worse than
+    // the end before (white = no change or not enough arrows yet).
+    private function drawForm(dc, y) as Void {
+        var w = dc.getWidth();
+        var f = _m.form as Array<Float>?;
+        var p = _m.formPrev as Array<Float>?;
+        var labels = ["ACC", "GRP", "STB", "FORM"];
+        for (var i = 0; i < 4; i += 1) {
+            var txt = "--";
+            var col = Graphics.COLOR_WHITE;
+            if (f != null && f[i] >= 0) {
+                txt = f[i].format("%.1f");
+                if (p != null && p[i] >= 0) {
+                    var d = f[i] - p[i];
+                    if (d >= 0.3) { col = Graphics.COLOR_GREEN; }
+                    else if (d <= -0.3) { col = Graphics.COLOR_RED; }
+                }
+            }
+            drawStatF(dc, w * (0.2 + 0.2 * i), y, txt, labels[i], col, Graphics.FONT_TINY, 0.065);
+        }
+    }
+
+    private function phaseColor(ph) {
+        if (ph.equals("FATIGUE")) { return Graphics.COLOR_ORANGE; }
+        if (ph.equals("STABLE")) { return Graphics.COLOR_WHITE; }
+        return Graphics.COLOR_GREEN;
+    }
+
+    private function drawStat(dc, x, y, value, label, col) as Void {
+        drawStatF(dc, x, y, value, label, col, Graphics.FONT_SMALL, 0.075);
+    }
+
+    private function drawStatF(dc, x, y, value, label, col, font, gap) as Void {
+        dc.setColor(col, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(x, y, font, value, ArcheryUi.CENTER);
         dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(x, y + dc.getHeight() * 0.08, Graphics.FONT_XTINY, label, ArcheryUi.CENTER);
+        dc.drawText(x, y + dc.getHeight() * gap, Graphics.FONT_XTINY, label, ArcheryUi.CENTER);
     }
 
     // Bars of the last 4 minutes of HR, coloured by zone (like the native HR graph).

@@ -165,18 +165,14 @@ module ArcheryUi {
         }
     }
 
-    // Index where the "aim" phase begins: after the last sample farther than splitCm
-    // from the break (the path ends at the break, at 0,0). Before it = "approach".
-    function aimStart(px as Array<Float>, py as Array<Float>, splitCm) as Number {
-        var s2 = splitCm * splitCm;
-        for (var i = px.size() - 1; i >= 0; i -= 1) {
-            var x = px[i];
-            var y = py[i];
-            if (x * x + y * y > s2) {
-                return i + 1;
-            }
-        }
-        return 0;
+    const AIM_S = 2.0;   // the "aim" phase = the last 2 s before the release (same window as MOA)
+
+    // Index where the aim phase begins in a path sampled every dt seconds.
+    // Before it = "approach" (raise, draw, anchor).
+    function aimStart(n as Number, dt) as Number {
+        if (dt <= 0) { return 0; }
+        var a = n - 1 - (AIM_S / dt + 0.5).toNumber();
+        return (a < 0) ? 0 : a;
     }
 
     // Polyline of path points [from, to) drawn at (ox + x*k, oy - y*k).

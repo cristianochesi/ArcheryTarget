@@ -18,13 +18,19 @@ class AimTracker {
     const DOWN_DEBOUNCE_S = 0.30;
     const RELEASE_MG      = 1500.0; // | |a| - 1 g | above this = release shock
     const MIN_HOLD_S      = 1.0;    // shocks in the first second of a hold are ignored
-    const MAX_TRACE_S     = 20;
+    const MAX_TRACE_S     = 20;     // rolling: only the LAST 20 s of a hold are kept
+    const MAX_HOLD_S      = 30.0;   // longer "holds" are not a shot routine: no hold time
+    const STEADY_DPS      = 30.0;   // aiming = arm up AND turning slower than this (deg/s) ...
+    const STEADY_S        = 0.5;    // ... for at least this long (raise, draw, carrying = moving)
     const STEADY_WINDOW_S = 2.0;    // aim RMS over the last 2 s before the release
     const SETTLE_S        = 1.0;    // skip the first second after the arm comes up (the raise itself)
     const CENTRE_TAU_S    = 1.5;
-    const PATH_MAX_S      = 8;      // aim path kept for the report (last 8 s before the release)    // the "centre" of the aim is its average over the last ~1.5 s
+    const PATH_MAX_S      = 8;
+    const KICK_RATIO      = 4.0;    // a step this many times the typical one is the release kick
+    const KICK_MAX_S      = 0.25;   // the kick is searched in the last 0.25 s before detection      // aim path kept for the report (last 8 s before the release)    // the "centre" of the aim is its average over the last ~1.5 s
 
     var isUp = false;
+    var steady = false;    // arm up and still: really aiming
     var hasGyro = false;
     var lastHold = null;   // Dictionary: :id :hold :released :rmsX :rmsY :xs :ys :rate :px :py :pdt
     var onRelease = null;  // Method called (once per batch) right after a release is detected
@@ -50,6 +56,7 @@ class AimTracker {
     private var _by = 0.0;
     private var _bz = 0.0;
 
+    private var _calmCnt = 0;
     private var _upCnt = 0;
     private var _downCnt = 0;
     private var _released = false;
@@ -170,7 +177,7 @@ class AimTracker {
                     _cy = py;
                     _centreInit = true;
                 }
-                if ((t - _holdStartMs) > (UP_DEBOUNCE_S + SETTLE_S) * 1000) {
+                if (steady && (t - _holdStartMs) > (UP_DEBOUNCE_S + SETTLE_S) * 1000) {
                     sx += px - _cx;
                     sy += py - _cy;
                     cnt += 1;
@@ -223,13 +230,27 @@ class AimTracker {
             return;
         }
 
+        if (hasGyro) {
+            var cx = wx - _bx;
+            var cy = wy - _by;
+            var cz = wz - _bz;
+            var sp = Math.sqrt(cx * cx + cy * cy + cz * cz);
+            _calmCnt = (sp < STEADY_DPS) ? _calmCnt + 1 : 0;
+            steady = (_calmCnt * _dt >= STEADY_S);
+        } else {
+            steady = true;
+        }
+
         if (!_released) {
             if (hasGyro) {
                 integrate(gn, wx - _bx, wy - _by, wz - _bz);
-                if (_xs.size() < MAX_TRACE_S * _rate) {
-                    _xs.add(xCm());
-                    _ys.add(yCm());
+                if (_xs.size() >= MAX_TRACE_S * _rate) {
+                    // drop the oldest second, keep the most recent MAX_TRACE_S
+                    _xs = _xs.slice(_rate, null);
+                    _ys = _ys.slice(_rate, null);
                 }
+                _xs.add(xCm());
+                _ys.add(yCm());
             }
             if (shock > RELEASE_MG && (t - _holdStartMs) > MIN_HOLD_S * 1000) {
                 _released = true;
@@ -243,6 +264,7 @@ class AimTracker {
                 finishHold(t - (DOWN_DEBOUNCE_S * 1000).toNumber(), false);
             }
             isUp = false;
+            steady = false;
             _upCnt = 0;
         }
     }
@@ -273,6 +295,8 @@ class AimTracker {
 
     private function beginHold(t) as Void {
         isUp = true;
+        steady = false;
+        _calmCnt = 0;
         _released = false;
         _done = false;
         _downCnt = 0;
@@ -289,13 +313,16 @@ class AimTracker {
         _holdId += 1;
         if (released) {
             _releasedNow = true;
+            trimKick();
         }
         var n = _xs.size();
         var w = (STEADY_WINDOW_S * _rate).toNumber();
         if (w > n) { w = n; }
+        var holdS = (endMs - _holdStartMs) / 1000.0;
         lastHold = {
             :id => _holdId,
-            :hold => (endMs - _holdStartMs) / 1000.0,
+            :hold => holdS,
+            :holdValid => holdS <= MAX_HOLD_S,
             :released => released,
             :rmsX => rmsRange(_xs, n - w, n),
             :rmsY => rmsRange(_ys, n - w, n),
@@ -304,6 +331,39 @@ class AimTracker {
             :rate => _rate
         };
         buildPath();
+    }
+
+    // The bow arm kicks at the release a few hundredths of a second before the shock crosses
+    // RELEASE_MG: cut those samples so the trace ends on the aim at the moment of release.
+    private function trimKick() as Void {
+        var n = _xs.size();
+        var tail = (KICK_MAX_S * _rate).toNumber();
+        if (n < tail + 5) { return; }
+        var sum = 0.0;
+        for (var i = 1; i < n - tail; i += 1) {
+            sum += traceStep(i);
+        }
+        var limit = KICK_RATIO * sum / (n - tail - 1);
+        if (limit < 0.5) { limit = 0.5; }
+        var end = n - 1;
+        // walk back through the kick (large steps) ...
+        while (end > n - 1 - tail && traceStep(end) > limit) {
+            end -= 1;
+        }
+        // ... and drop one more sample, still partly moving
+        if (end < n - 1) {
+            end -= 1;
+        }
+        if (end < n - 1) {
+            _xs = _xs.slice(0, end + 1);
+            _ys = _ys.slice(0, end + 1);
+        }
+    }
+
+    private function traceStep(i as Number) as Float {
+        var dx = (_xs[i] as Float) - (_xs[i - 1] as Float);
+        var dy = (_ys[i] as Float) - (_ys[i - 1] as Float);
+        return Math.sqrt(dx * dx + dy * dy).toFloat();
     }
 
     // Aim path for the report: the last PATH_MAX_S seconds at ~10 Hz, relative to the
@@ -318,12 +378,26 @@ class AimTracker {
         var px = new [cnt];
         var py = new [cnt];
         if (n > 0) {
-            var ex = _xs[n - 1];
-            var ey = _ys[n - 1];
+            // each point = average of the `step` samples ending at it (removes the tremor
+            // aliasing of plain decimation); the last point is the aim at release
             for (var k = 0; k < cnt; k += 1) {
                 var i = n - 1 - (cnt - 1 - k) * step;
-                px[k] = _xs[i] - ex;
-                py[k] = _ys[i] - ey;
+                var sx = 0.0;
+                var sy = 0.0;
+                var c = 0;
+                for (var j = i; j > i - step && j >= 0; j -= 1) {
+                    sx += _xs[j] as Float;
+                    sy += _ys[j] as Float;
+                    c += 1;
+                }
+                px[k] = sx / c;
+                py[k] = sy / c;
+            }
+            var ex = px[cnt - 1];
+            var ey = py[cnt - 1];
+            for (var k = 0; k < cnt; k += 1) {
+                px[k] = px[k] - ex;
+                py[k] = py[k] - ey;
             }
         }
         lastHold[:px] = px;

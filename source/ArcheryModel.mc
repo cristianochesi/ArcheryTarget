@@ -14,6 +14,7 @@ import Toybox.WatchUi;
 class ArcheryModel {
 
     const SPORT_ARCHERY_FIT = 79;   // FIT profile sport id "archery"
+    const FORM_DELTA = 0.4;         // change of the form value (points) that counts as a trend
     const FIT_PATH_N = 32;          // aim-path points stored per arrow in the FIT file
     const FIT_PATH_DT = 0.2;        // seconds between them (last 6.4 s before the release)
     const FIT_PATH_SCALE = 4.0;     // stored as SINT16 in 1/4 cm
@@ -30,6 +31,11 @@ class ArcheryModel {
     var hrHist = [];                // last ArcheryUi.HR_HISTORY samples, 0 = no reading
     var hrZones = null;             // [z1 min, z1 max, z2 max, z3 max, z4 max, z5 max]
     var respRate = null;            // breaths/min
+    // Form metrics, all on the arrow-score scale (0..10, 10 = perfect), see formStats().
+    var form = null;                // [acc, grp, stb (-1 = no aim data), form] last end window
+    var formPrev = null;            // same, for the end before
+    var ends = [];                  // one entry per completed end
+    var phase = "";                 // "", "WARM-UP", "IMPROVING", "STABLE", "FATIGUE"
     var mainVisible = false;        // MainView on top (auto-open of the target only from there)
     var targetOpen = false;
     var hrAvg = 0;
@@ -46,6 +52,7 @@ class ArcheryModel {
     private var _sumHold = 0.0;
     private var _sumRmsX = 0.0;
     private var _sumRmsY = 0.0;
+    private var _holdTimeN = 0;
     private var _hrSum = 0;
     private var _hrN = 0;
     private var _rrSum = 0.0;
@@ -280,7 +287,8 @@ class ArcheryModel {
     // The hold (arm up -> release) not yet assigned to an arrow, or null.
     function pendingHold() {
         var h = tracker.lastHold;
-        if (h == null || h[:id] == _usedHoldId) {
+        // only holds that ended with a detected release belong to an arrow
+        if (h == null || h[:id] == _usedHoldId || !h[:released]) {
             return null;
         }
         return h;
@@ -310,13 +318,17 @@ class ArcheryModel {
         var rmsY = 0.0;
         if (h != null) {
             _usedHoldId = h[:id];
-            holdSec = h[:hold].toFloat();
             rmsX = h[:rmsX];
             rmsY = h[:rmsY];
             _holdN += 1;
-            _sumHold += holdSec;
             _sumRmsX += rmsX;
             _sumRmsY += rmsY;
+            // the aim data before the release is always good; the hold time only if plausible
+            if (h[:holdValid]) {
+                holdSec = h[:hold].toFloat();
+                _holdTimeN += 1;
+                _sumHold += holdSec;
+            }
         }
 
         var px = null;
@@ -333,6 +345,7 @@ class ArcheryModel {
         _sumX += x;
         _sumY += y;
         _sumDist += d;
+        updateForm();
 
         if (_session == null) {
             return;
@@ -349,8 +362,10 @@ class ArcheryModel {
         _fTotal.setData(total);
         _fMeanX.setData(meanX());
         _fMeanY.setData(meanY());
+        if (_holdTimeN > 0) {
+            _fAvgHold.setData(_sumHold / _holdTimeN);
+        }
         if (_holdN > 0) {
-            _fAvgHold.setData(_sumHold / _holdN);
             _fAvgRmsX.setData(_sumRmsX / _holdN);
             _fAvgRmsY.setData(_sumRmsY / _holdN);
         }
@@ -374,8 +389,9 @@ class ArcheryModel {
             var back = ((FIT_PATH_N - 1 - k) * FIT_PATH_DT / pdt + 0.5).toNumber();
             var i = n - 1 - back;
             if (i < 0) { continue; }
-            out[2 * k] = clip16(px[i] * FIT_PATH_SCALE);
-            out[2 * k + 1] = clip16(py[i] * FIT_PATH_SCALE);
+            var j = (i > 0 && k < FIT_PATH_N - 1) ? i - 1 : i;   // keep the release point exact
+            out[2 * k] = clip16((px[i] + px[j]) / 2.0 * FIT_PATH_SCALE);
+            out[2 * k + 1] = clip16((py[i] + py[j]) / 2.0 * FIT_PATH_SCALE);
         }
         return out;
     }
@@ -385,6 +401,90 @@ class ArcheryModel {
         if (n > 32766) { return 32766; }
         if (n < -32767) { return -32767; }
         return n;
+    }
+
+    // ---------------------------------------------------------------- form
+
+    // Arrows per end: 3 on the 40 cm indoor face, 6 otherwise (World Archery practice).
+    function endSize() as Number {
+        return (faceCm <= 40.0) ? 3 : 6;
+    }
+
+    // Accuracy, grouping and stability of arrows [from, to), each converted to the score an
+    // arrow would get if that error alone moved it off the centre: 10 - error / ring width.
+    //   acc  error = distance of the group centre from the target centre   (where you group)
+    //   grp  error = mean distance of the arrows from their group centre    (how tight)
+    //   stb  error = aim wobble at the target in the last 2 s before release (how still)
+    //   form = mean of the three
+    function formStats(from as Number, to as Number) as Array<Float> {
+        var w = faceCm / 20.0;
+        var n = to - from;
+        var mx = 0.0;
+        var my = 0.0;
+        for (var i = from; i < to; i += 1) {
+            var s = shots[i] as Array;
+            mx += s[0];
+            my += s[1];
+        }
+        mx = mx / n;
+        my = my / n;
+        var spread = 0.0;
+        var wob = 0.0;
+        var nw = 0;
+        for (var i = from; i < to; i += 1) {
+            var s = shots[i] as Array;
+            var dx = s[0] - mx;
+            var dy = s[1] - my;
+            spread += Math.sqrt(dx * dx + dy * dy);
+            if (s[4] != null) {
+                wob += Math.sqrt(s[7] * s[7] + s[8] * s[8]);
+                nw += 1;
+            }
+        }
+        var acc = sub(Math.sqrt(mx * mx + my * my) / w);
+        var grp = sub(spread / n / w);
+        if (nw == 0) {
+            return [acc, grp, -1.0, (acc + grp) / 2.0];
+        }
+        var stb = sub(wob / nw / w);
+        return [acc, grp, stb, (acc + grp + stb) / 3.0];
+    }
+
+    private function sub(rings) as Float {
+        var v = 10.0 - rings;
+        return ((v < 0) ? 0.0 : ((v > 10) ? 10.0 : v)).toFloat();
+    }
+
+    // Live window = the last end (or the arrows so far, from 3 on); trend = against the end
+    // before; warm-up / fatigue from the change of the form value.
+    private function updateForm() as Void {
+        var n = shots.size();
+        var N = endSize();
+        if (n < 3) {
+            return;
+        }
+        form = formStats((n > N) ? n - N : 0, n);
+        formPrev = (n >= 2 * N) ? formStats(n - 2 * N, n - N) : null;
+        if (n % N == 0) {
+            ends.add(formStats(n - N, n));
+        }
+        if (formPrev == null) {
+            phase = "";
+            return;
+        }
+        var best = 0.0;
+        for (var i = 0; i < ends.size(); i += 1) {
+            var f = (ends[i] as Array<Float>)[3];
+            if (f > best) { best = f; }
+        }
+        var d = form[3] - formPrev[3];
+        if (d >= FORM_DELTA) {
+            phase = (n <= 3 * N) ? "WARM-UP" : "IMPROVING";
+        } else if (d <= -FORM_DELTA && best - form[3] >= FORM_DELTA) {
+            phase = "FATIGUE";
+        } else {
+            phase = "STABLE";
+        }
     }
 
     function count() {
@@ -400,7 +500,7 @@ class ArcheryModel {
     function meanX()    { return mean(_sumX); }
     function meanY()    { return mean(_sumY); }
     function meanDist() { return mean(_sumDist); }
-    function avgHold()  { return (_holdN > 0) ? (_sumHold / _holdN).toFloat() : 0.0; }
+    function avgHold()  { return (_holdTimeN > 0) ? (_sumHold / _holdTimeN).toFloat() : 0.0; }
     function avgRmsX()  { return (_holdN > 0) ? (_sumRmsX / _holdN).toFloat() : 0.0; }
     function avgRmsY()  { return (_holdN > 0) ? (_sumRmsY / _holdN).toFloat() : 0.0; }
     function holdCount() { return _holdN; }

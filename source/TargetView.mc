@@ -91,7 +91,7 @@ class TargetView extends WatchUi.View {
         var py = _hold[:py] as Array<Float>;
         var n = px.size();
         var k = _r / (_m.faceCm / 2.0);
-        var a = ArcheryUi.aimStart(px, py, _m.faceCm * 0.15);
+        var a = ArcheryUi.aimStart(n, _hold[:pdt]);
         var pen = (2 * ArcheryUi.scale(dc) + 0.5).toNumber();
         ArcheryUi.drawPath(dc, px, py, 0, a + 1, _px, _py, k, Graphics.COLOR_PURPLE, pen);
         ArcheryUi.drawPath(dc, px, py, a, n, _px, _py, k, Graphics.COLOR_DK_BLUE, pen);
