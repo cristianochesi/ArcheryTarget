@@ -1,6 +1,6 @@
-# Archery Target — Connect IQ app for Garmin smartwatches with gyroscope and touchscreen
+# Archery Target — Connect IQ app for Forerunner 955
 
-A Connect IQ device app that records your archery activity: arrow positions on a
+A Connect IQ device app that records its own Archery activity: arrow positions on a
 touch target, heart rate, respiration rate and bow-arm aim movement (X/Y) during each hold.
 
 ## Controls
@@ -38,15 +38,37 @@ touch target, heart rate, respiration rate and bow-arm aim movement (X/Y) during
 ## Report and aim paths
 - After the release the gyroscope trace stops; the last 8 s before the release are kept
   (~10 Hz) as the arrow's aim path, relative to the aim at the release ("break").
-- The path is drawn ending on the marked hit: purple = approach (until the aim last came within
-  15 % of the face diameter of the break), blue = aim, red = break. This assumes the arrow
+- The release kick of the bow arm (the samples just before the shock is detected) is cut off,
+  and samples are averaged in 0.1 s blocks so hand tremor does not alias into zig-zags.
+- The path is drawn ending on the marked hit: purple = approach (raise, draw, anchor),
+  blue = aim = the last 2 s before the release (the same window as the aim MOA), red = break. This assumes the arrow
   landed where the bow pointed at release — wind, form and tuning make the real offset differ.
 - Aim MOA = radial RMS of the aim in the last 2 s before release, as an angle (1 MOA ≈ 2 cm at 70 m).
 - Aim float heat map: all "aim" samples relative to the release point; the arrow is the average
   movement from the float centroid into the release (the drift / bending tendency).
 - Garmin Connect cannot show images: the path is also saved in each lap as `aim_path`
-  (32 points, 0.2 s apart, 1/4 cm), and `tools/plot_shots.py activity.fit --face 122 --dist 70
-  --out report.png` renders the same report on a computer.
+  (32 points, 0.2 s apart, 1/4 cm), and `tools/plot_shots.py activity.fit --dist 70 --out report.png` renders the same report on a
+  computer. The face size is detected from the scores; `--dist` must be the distance that was set
+  on the watch (the cm values were computed with it), otherwise the MOA values are off.
+
+## Form metrics (main page, report, plot_shots.py)
+All on the arrow-score scale: 10 − error / ring width (ring width = face / 20), clipped to 0–10.
+- **ACC** accuracy: error = distance of the group centre from the target centre.
+- **GRP** grouping: error = mean distance of the arrows from their own group centre.
+- **STB** stability: error = aim wobble at the target (radial RMS, last 2 s before release).
+- **FORM** = (ACC + GRP + STB) / 3.
+Computed on the last end (6 arrows, 3 on the 40 cm face). Colours on the watch: green / red =
+better / worse than the end before. Phase: WARM-UP (or IMPROVING after 3 ends) when FORM rose by
+≥ 0.4, FATIGUE when it fell by ≥ 0.4 and is ≥ 0.4 below the best end, otherwise STABLE.
+This is not an official archery standard (score, X count and group size are); it is a transparent
+combination of the three. STB depends on the distance setting being right.
+
+## Aiming detection
+- RAISED = arm up but moving (raise, draw, carrying); AIMING = arm up and turning < 30°/s for 0.5 s.
+  The per-second aim charts only record while AIMING.
+- Only the last 20 s of a hold are kept (rolling); holds over 30 s get no hold time
+  (the aim data before the release is still used).
+- A hold that ends without a detected release is never attached to an arrow.
 
 ## Spoken feedback
 Garmin Connect's standard lap alert (lap time) is spoken after each arrow. Speaking the score
